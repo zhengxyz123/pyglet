@@ -1,3 +1,4 @@
+import sys as _sys
 import queue as _queue
 import struct as _struct
 import socket as _socket
@@ -13,22 +14,24 @@ class _BaseConnection(_EventDispatcher):
         self._socket = socket
         self._address = address[0]
         self._port = address[1]
-        self._alive = _threading.Event()
+        self._terminate = _threading.Event()
         self._queue = _queue.Queue()
         _threading.Thread(target=self._recv, daemon=True).start()
         _threading.Thread(target=self._send, daemon=True).start()
         self._sentinal = object()   # poison pill
 
-    def close(self):
+    def close(self, exception=None):
         """Close the connection."""
-        self._alive.set()
         self._queue.put(self._sentinal)
         self._socket.close()
+        if not self._terminate.is_set():
+            self._terminate.set()
+            self.dispatch_event('on_disconnect', self, exception)
 
     def _recv(self):  # Thread
         socket = self._socket
 
-        while not self._alive.is_set():
+        while not self._terminate.is_set():
             try:
                 header = socket.recv(4)
                 while len(header) < 4:
@@ -39,11 +42,10 @@ class _BaseConnection(_EventDispatcher):
                 message = socket.recv(size)
                 while len(message) < size:
                     message += socket.recv(size)
-
                 self.dispatch_event('on_receive', self, message)
-            except BaseException as e:
-                self.close()
-                self.dispatch_event('on_disconnect', self, e)
+            except BaseException:
+                info = _sys.exc_info()
+                self.close(info[1])
                 break
 
     def send(self, message):
@@ -57,27 +59,27 @@ class _BaseConnection(_EventDispatcher):
             `message` : bytes
                 A string of bytes to send.
         """
-        if self._alive.is_set():
+        if self._terminate.is_set():
             raise ConnectionError("Connection is closed.")
         self._queue.put(message)
 
     def _send(self):    # Thread
-        while not self._alive.is_set():
+        while not self._terminate.is_set():
             message = self._queue.get()
             if message == self._sentinal:   # bail out on poison pill
                 break
             try:
                 packet = _struct.pack('I', len(message)) + message
                 self._socket.sendall(packet)
-            except BaseException as e:
-                self.dispatch_event('on_disconnect', self, e)
-                self._alive.set()
+            except BaseException:
+                info = _sys.exc_info()
+                self.close(info[1])
                 break
 
     def on_receive(self, connection, message):
         """Event for received messages."""
 
-    def on_disconnect(self, connection):
+    def on_disconnect(self, connection, exception=None):
         """Event for disconnection. """
 
     def __repr__(self):
@@ -91,9 +93,13 @@ _BaseConnection.register_event_type('on_disconnect')
 class Client(_BaseConnection):
     def __init__(self, address, port):
         """Create a Client connection to a Server."""
-        self._alive = True
         self._socket = _socket.create_connection((address, port))
         super().__init__(self._socket, address)
+
+    def on_disconnect(self, connection, exception=None):
+        """Default disconnection handler. Raises Exceptions, if any."""
+        if exception:
+            raise exception
 
     def __repr__(self):
         return f"Client(address={self._address}, port={self._port})"
@@ -104,12 +110,9 @@ class Server(_EventDispatcher):
     def __init__(self, address, port, reuse_port=False):
         """Create a threaded socket server"""
         self._alive = _threading.Event()
-        self._socket = _socket.create_server(
-            (address, port), reuse_port=reuse_port)
-        self._recv_thread = _threading.Thread(
-            target=self._receive_connections, daemon=True)
+        self._socket = _socket.create_server((address, port), reuse_port=reuse_port)
+        self._recv_thread = _threading.Thread(target=self._receive_connections, daemon=True)
         self._recv_thread.start()
-        print("Server loop running in thread:", self._recv_thread.name)
 
     def close(self):
         self._alive.set()
