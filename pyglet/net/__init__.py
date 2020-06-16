@@ -41,9 +41,9 @@ class _BaseConnection(_EventDispatcher):
                     message += socket.recv(size)
 
                 self.dispatch_event('on_receive', self, message)
-            except BaseException:
+            except BaseException as e:
                 self.close()
-                self.dispatch_event('on_disconnect', self)
+                self.dispatch_event('on_disconnect', self, e)
                 break
 
     def send(self, message):
@@ -69,8 +69,8 @@ class _BaseConnection(_EventDispatcher):
             try:
                 packet = _struct.pack('I', len(message)) + message
                 self._socket.sendall(packet)
-            except BaseException:
-                self.dispatch_event('on_disconnect', self)
+            except BaseException as e:
+                self.dispatch_event('on_disconnect', self, e)
                 self._alive.set()
                 break
 
@@ -101,11 +101,13 @@ class Client(_BaseConnection):
 
 class Server(_EventDispatcher):
 
-    def __init__(self, address, port):
+    def __init__(self, address, port, reuse_port=False):
         """Create a threaded socket server"""
         self._alive = _threading.Event()
-        self._socket = _socket.create_server((address, port), reuse_port=True)
-        self._recv_thread = _threading.Thread(target=self._receive_connections, daemon=True)
+        self._socket = _socket.create_server(
+            (address, port), reuse_port=reuse_port)
+        self._recv_thread = _threading.Thread(
+            target=self._receive_connections, daemon=True)
         self._recv_thread.start()
         print("Server loop running in thread:", self._recv_thread.name)
 
@@ -126,7 +128,7 @@ class Server(_EventDispatcher):
     def on_connection(self, connection):
         """Event for new Connections received."""
 
-    def on_disconnect(self):
+    def on_disconnect(self, exception):
         """Event for Server disconnection."""
 
 
