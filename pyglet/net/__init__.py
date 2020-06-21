@@ -3,6 +3,9 @@ import queue as _queue
 import struct as _struct
 import socket as _socket
 import threading as _threading
+import collections as _collections
+
+import asyncio as _asyncio
 
 from pyglet.event import EventDispatcher as _EventDispatcher
 
@@ -103,6 +106,96 @@ class Client(_BaseConnection):
 
     def __repr__(self):
         return f"Client(address={self._address}, port={self._port})"
+
+
+class AsyncConnection(_EventDispatcher):
+
+    def __init__(self, reader, writer):
+        self._reader = reader
+        self._writer = writer
+        self._queue = _collections.deque()
+        self._loop = _asyncio.get_event_loop()
+        _asyncio.run_coroutine_threadsafe(self._recv(), self._loop)
+
+    async def _recv(self):
+        reader = self._reader
+
+        while True:
+            header = await reader.read(4)
+            while len(header) < 4:
+                header += await reader.read(4)
+
+            size = _struct.unpack('I', header)[0]
+
+            message = await reader.read(size)
+            while len(message) < size:
+                message += await reader.read(size)
+
+            self.dispatch_event('on_receive', self, message)
+
+    async def _send(self):
+        message = self._queue.popleft()
+        packet = _struct.pack('I', len(message)) + message
+        self._writer.write(packet)
+        await self._writer.drain()
+
+    def send(self, message):
+        if self._writer.transport is None or self._writer.transport.is_closing():
+            self.dispatch_event('on_disconnect', self)
+            return
+        self._queue.append(message)
+        _asyncio.run(self._send())
+
+    def on_receive(self, connection, message):
+        """Event for received messages."""
+
+    def on_disconnect(self, connection):
+        """Event for disconnection. """
+
+    def __del__(self):
+        print("GC: ", self)
+
+
+AsyncConnection.register_event_type('on_receive')
+AsyncConnection.register_event_type('on_disconnect')
+
+
+class AsyncServer(_EventDispatcher):
+
+    def __init__(self, address, port):
+        self._address = address
+        self._port = port
+        self._async_thread = _threading.Thread(target=_asyncio.run, args=(self._start_server(),), daemon=True)
+        self._async_thread.start()
+
+    async def handle_connection(self, reader, writer):
+
+        connection = AsyncConnection(reader, writer)
+        self.dispatch_event('on_connection', connection)
+
+        # addr = writer.get_extra_info('peername')
+        # print(f"Received {message!r} from {addr!r}")
+
+        # print("Close the connection")
+        # writer.close()
+
+    async def _start_server(self):
+        server = await _asyncio.start_server(self.handle_connection, self._address, self._port)
+        print(f'Serving on {server.sockets[0].getsockname()}')
+        async with server:
+            await server.serve_forever()
+
+    def on_connection(self, connection):
+        """Event for new Connections received."""
+
+    def on_disconnect(self, exception):
+        """Event for Server disconnection."""
+
+
+AsyncServer.register_event_type('on_connection')
+AsyncServer.register_event_type('on_disconnect')
+
+AsyncServer.register_event_type('on_receive')
 
 
 class Server(_EventDispatcher):
