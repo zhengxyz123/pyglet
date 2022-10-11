@@ -69,11 +69,13 @@ import sys
 
 import pyglet
 
-from pyglet.gl import *
 from pyglet import clock
-from pyglet import event
 from pyglet import graphics
 from pyglet import image
+
+from pyglet.gl import *
+from pyglet.animation import AnimationController
+
 
 _is_pyglet_doc_run = hasattr(sys, "is_pyglet_doc_run") and sys.is_pyglet_doc_run
 
@@ -233,16 +235,13 @@ class SpriteGroup(graphics.Group):
                      self.blend_src, self.blend_dest))
 
 
-class Sprite(event.EventDispatcher):
+class Sprite(AnimationController):
     """Instance of an on-screen image.
 
     See the module documentation for usage.
     """
 
     _batch = None
-    _animation = None
-    _frame_index = 0
-    _paused = False
     _rotation = 0
     _opacity = 255
     _rgb = (255, 255, 255)
@@ -291,8 +290,9 @@ class Sprite(event.EventDispatcher):
         self._img = img
 
         if isinstance(img, image.Animation):
+            super().__init__(img, self._animation_callback)
             self._animation = img
-            self._texture = img.frames[0].image.get_texture()
+            self._texture = img.frames[0].data.get_texture()
             self._next_dt = img.frames[0].duration
             if self._next_dt:
                 clock.schedule_once(self._animate, self._next_dt)
@@ -336,24 +336,8 @@ class Sprite(event.EventDispatcher):
         # Easy way to break circular reference, speeds up GC
         self._group = None
 
-    def _animate(self, dt):
-        self._frame_index += 1
-        if self._frame_index >= len(self._animation.frames):
-            self._frame_index = 0
-            self.dispatch_event('on_animation_end')
-            if self._vertex_list is None:
-                return  # Deleted in event handler.
-
-        frame = self._animation.frames[self._frame_index]
-        self._set_texture(frame.image.get_texture())
-
-        if frame.duration is not None:
-            duration = frame.duration - (self._next_dt - dt)
-            duration = min(max(0, duration), frame.duration)
-            clock.schedule_once(self._animate, duration)
-            self._next_dt = duration
-        else:
-            self.dispatch_event('on_animation_end')
+    def _animation_callback(self, frame):
+        self._set_texture(frame.data.get_texture())
 
     @property
     def batch(self):
@@ -730,51 +714,6 @@ class Sprite(event.EventDispatcher):
         self._visible = visible
         self._update_position()
 
-    @property
-    def paused(self):
-        """Pause/resume the Sprite's Animation
-
-        If `Sprite.image` is an Animation, you can pause or resume
-        the animation by setting this property to True or False.
-        If not an Animation, this has no effect.
-
-        :type: bool
-        """
-        return self._paused
-
-    @paused.setter
-    def paused(self, pause):
-        if not hasattr(self, '_animation') or pause == self._paused:
-            return
-        if pause is True:
-            clock.unschedule(self._animate)
-        else:
-            frame = self._animation.frames[self._frame_index]
-            self._next_dt = frame.duration
-            if self._next_dt:
-                clock.schedule_once(self._animate, self._next_dt)
-        self._paused = pause
-
-    @property
-    def frame_index(self):
-        """The current Animation frame.
-
-        If the `Sprite.image` is an `Animation`,
-        you can query or set the current frame.
-        If not an Animation, this will always
-        be 0.
-
-        :type: int
-        """
-        return self._frame_index
-
-    @frame_index.setter
-    def frame_index(self, index):
-        # Bound to available number of frames
-        if self._animation is None:
-            return
-        self._frame_index = max(0, min(index, len(self._animation.frames)-1))
-
     def draw(self):
         """Draw the sprite at its current position.
 
@@ -795,9 +734,6 @@ class Sprite(event.EventDispatcher):
 
             :event:
             """
-
-
-Sprite.register_event_type('on_animation_end')
 
 
 class AdvancedSprite(pyglet.sprite.Sprite):
@@ -837,7 +773,3 @@ class AdvancedSprite(pyglet.sprite.Sprite):
                                        self._group)
         self._batch.migrate(self._vertex_list, GL_TRIANGLES, self._group, self._batch)
         self._program = program
-
-
-
-

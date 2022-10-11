@@ -330,6 +330,7 @@ class _ModuleProxy:
 # type checking or code inspection.
 if TYPE_CHECKING:
     from . import app
+    from . import animation
     from . import canvas
     from . import clock
     from . import event
@@ -350,6 +351,7 @@ if TYPE_CHECKING:
     from . import window
 else:
     app = _ModuleProxy('app')
+    animation = _ModuleProxy('animation')
     canvas = _ModuleProxy('canvas')
     clock = _ModuleProxy('clock')
     event = _ModuleProxy('event')
