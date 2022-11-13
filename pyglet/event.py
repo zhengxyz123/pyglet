@@ -241,10 +241,10 @@ from this method. If any of the handlers returns `EVENT_HANDLED`, then
 any handlers for a given event) it returns `EVENT_UNHANDLED`.
 """
 
-import inspect
+import inspect as _inspect
 
-from functools import partial
-from weakref import WeakMethod
+from functools import partial as _partial
+from weakref import WeakMethod as _WeakMethod
 
 
 EVENT_HANDLED = True
@@ -270,7 +270,7 @@ def priority(prio=0):
     return wrap
 
 
-class EventDispatcher(object):
+class EventDispatcher:
     """Generic event dispatcher interface.
 
     See the module docstring for usage.
@@ -310,8 +310,7 @@ class EventDispatcher(object):
             # Iterate through all the methods of an object and yield those that
             # match registered events.
             for name in dir(handler):
-                if (name in self.event_types and
-                    callable(getattr(handler, name))):
+                if name in self.event_types and callable(getattr(handler, name)):
                     yield name
 
     def _finalize_weak_method(self, name, weak_method):
@@ -326,7 +325,8 @@ class EventDispatcher(object):
             else:
                 i += 1
 
-    def _remove_handler_from_queue(self, handlers_queue, handler):
+    @staticmethod
+    def _remove_handler_from_queue(handlers_queue, handler):
         """Remove all instances of a handler from a queue for a single event.
 
         If `handler` is an object, then all the methods bound to this object
@@ -337,11 +337,10 @@ class EventDispatcher(object):
         # an array, but in almost all cases only one element has to be removed.
         while i < len(handlers_queue):
             _, registered_handler = handlers_queue[i]
-            if isinstance(registered_handler, WeakMethod):
-                # Wrapped in WeakMethod in `push_handler`.
+            if isinstance(registered_handler, _WeakMethod):
+                # Wrapped in _WeakMethod in `push_handler`.
                 registered_handler = registered_handler()
-            if (registered_handler is handler or
-                getattr(registered_handler, '__self__', None) is handler):
+            if registered_handler is handler or getattr(registered_handler, '__self__', None) is handler:
                 del handlers_queue[i]
             else:
                 i += 1
@@ -350,7 +349,7 @@ class EventDispatcher(object):
         """Adds a single event handler.
 
         If the `handler` parameter is callable, it will be registered directly.
-        Otherwise it's expected to be an object having a method with a name
+        Otherwise, it's expected to be an object having a method with a name
         matching the name of the event.
 
         If the `priority` parameter is not None, it is used as a priotity.
@@ -384,9 +383,8 @@ class EventDispatcher(object):
                 priority = int(priority)
 
         # Wrap methods in weak references.
-        if inspect.ismethod(handler):
-            handler = WeakMethod(handler, partial(
-                self._finalize_weak_method, name))
+        if _inspect.ismethod(handler):
+            handler = _WeakMethod(handler, _partial(self._finalize_weak_method, name))
 
         # Create handler queues if necessary.
         if self._handlers is None:
@@ -503,7 +501,7 @@ class EventDispatcher(object):
     def dispatch_event(self, event_type, *args):
         """Dispatch a single event to the attached handlers.
 
-        The event is propagated to all handlers from from the top of the stack
+        The event is propagated to all handlers from the top of the stack
         until one returns `EVENT_HANDLED`.  This method should be used only by
         :py:class:`~pyglet.event.EventDispatcher` implementors; applications
         should call the ``dispatch_events`` method.
@@ -543,19 +541,19 @@ class EventDispatcher(object):
 
         handlers_queue = self._handlers.get(event_type, ())
         for _, handler in handlers_queue:
-            if isinstance(handler, WeakMethod):
+            if isinstance(handler, _WeakMethod):
                 handler = handler()
                 assert handler is not None
             try:
                 if handler(*args):
                     return EVENT_HANDLED
             except TypeError as exception:
-                self._raise_dispatch_exception(
-                    event_type, args, handler, exception)
+                self._raise_dispatch_exception(event_type, args, handler, exception)
 
         return EVENT_UNHANDLED
 
-    def _raise_dispatch_exception(self, event_type, args, handler, exception):
+    @staticmethod
+    def _raise_dispatch_exception(event_type, args, handler, exception):
         # A common problem in applications is having the wrong number of
         # arguments in an event handler.  This is caught as a TypeError in
         # dispatch_event but the error message is obfuscated.
@@ -568,7 +566,7 @@ class EventDispatcher(object):
         n_args = len(args)
 
         # Inspect the handler
-        argspecs = inspect.getfullargspec(handler)
+        argspecs = _inspect.getfullargspec(handler)
         handler_args = argspecs.args
         handler_varargs = argspecs.varargs
         handler_defaults = argspecs.defaults
@@ -576,7 +574,7 @@ class EventDispatcher(object):
         n_handler_args = len(handler_args)
 
         # Remove "self" arg from handler if it's a bound method
-        if inspect.ismethod(handler) and handler.__self__:
+        if _inspect.ismethod(handler) and handler.__self__:
             n_handler_args -= 1
 
         # Allow *args varargs to overspecify arguments
@@ -584,21 +582,19 @@ class EventDispatcher(object):
             n_handler_args = max(n_handler_args, n_args)
 
         # Allow default values to overspecify arguments
-        if (n_handler_args > n_args and handler_defaults and
-                n_handler_args - len(handler_defaults) <= n_args):
+        if n_handler_args > n_args >= n_handler_args - len(handler_defaults) and handler_defaults:
             n_handler_args = n_args
 
         if n_handler_args != n_args:
-            if inspect.isfunction(handler) or inspect.ismethod(handler):
+            if _inspect.isfunction(handler) or _inspect.ismethod(handler):
                 descr = "'%s' at %s:%d" % (handler.__name__,
                                            handler.__code__.co_filename,
                                            handler.__code__.co_firstlineno)
             else:
                 descr = repr(handler)
 
-            raise TypeError("The '{0}' event was dispatched with {1} arguments, "
-                            "but your handler {2} accepts only {3} arguments.".format(
-                                event_type, len(args), descr, len(handler_args)))
+            raise TypeError(f"The '{event_type}' event was dispatched with {len(args)} arguments, "
+                            f"but your handler {descr} accepts only {len(handler_args)} arguments.")
         else:
             raise exception
 
@@ -626,14 +622,15 @@ class EventDispatcher(object):
                 self.push_handler(name, func)
                 return func
             return decorator
-        elif inspect.isroutine(args[0]):        # @window.event
+
+        elif _inspect.isroutine(args[0]):        # @window.event
             func = args[0]
             name = func.__name__
             self.push_handler(name, func)
             return args[0]
+
         elif isinstance(args[0], str):          # @window.event('on_resize')
             name = args[0]
-
             def decorator(func):
                 self.push_handler(name, func)
                 return func
