@@ -113,16 +113,32 @@ from pyglet import image
 _is_pyglet_doc_run = hasattr(sys, "is_pyglet_doc_run") and sys.is_pyglet_doc_run
 
 
-vertex_source = """#version 150 core
-    in vec3 translate;
-    in vec4 colors;
-    in vec3 tex_coords;
-    in vec2 scale;
+vertex_source = """#version 150
     in vec3 position;
+    in vec4 size;
+    in vec4 color;
+    in vec4 texture_uv;
     in float rotation;
 
-    out vec4 vertex_colors;
-    out vec3 texture_coords;
+    out vec4 geo_size;
+    out vec4 geo_color;
+    out vec4 geo_tex_coords;
+    out float geo_rotation;
+
+    void main() {
+        gl_Position = vec4(position, 1);
+        geo_size = size;
+        geo_color = color;
+        geo_tex_coords = texture_uv;
+        geo_rotation = rotation;
+    }
+"""
+
+geometry_source = """#version 150
+    // We are taking single points form the vertex shader
+    // and emitting 4 new vertices creating a quad/sprites
+    layout (points) in;
+    layout (triangle_strip, max_vertices = 4) out;
 
     uniform WindowBlock
     {
@@ -130,52 +146,102 @@ vertex_source = """#version 150 core
         mat4 view;
     } window;
 
-    mat4 m_scale = mat4(1.0);
-    mat4 m_rotation = mat4(1.0);
-    mat4 m_translate = mat4(1.0);
 
-    void main()
-    {
-        m_scale[0][0] = scale.x;
-        m_scale[1][1] = scale.y;
-        m_translate[3][0] = translate.x;
-        m_translate[3][1] = translate.y;
-        m_translate[3][2] = translate.z;
-        m_rotation[0][0] =  cos(-radians(rotation)); 
-        m_rotation[0][1] =  sin(-radians(rotation));
-        m_rotation[1][0] = -sin(-radians(rotation));
-        m_rotation[1][1] =  cos(-radians(rotation));
+    // Since geometry shader can take multiple values from a vertex
+    // shader we need to define the inputs from it as arrays.
+    // In our instance we just take single values (points)
+    in vec4 geo_size[];
+    in vec4 geo_color[];
+    in vec4 geo_tex_coords[];
+    in float geo_rotation[];
 
-        gl_Position = window.projection * window.view * m_translate * m_rotation * m_scale * vec4(position, 1.0);
+    out vec2 uv;
+    out vec4 frag_color;
 
-        vertex_colors = colors;
-        texture_coords = tex_coords;
+    void main() {
+
+        // We grab the position value from the vertex shader
+        vec2 center = gl_in[0].gl_Position.xy;
+
+        // Calculate the half size of the sprites for easier calculations
+        vec2 hsize = geo_size[0].xy / 2.0;
+
+        // Convert the rotation to radians
+        float angle = radians(-geo_rotation[0]);
+
+        // Create a scale vector
+        vec2 scale = vec2(geo_size[0][2], geo_size[0][3]);
+
+        // Create a 2d rotation matrix
+        mat2 rot = mat2(cos(angle), sin(angle),
+                       -sin(angle), cos(angle));
+
+        // Calculate the left, bottom, right, top:
+        float tl = geo_tex_coords[0].s;
+        float tb = geo_tex_coords[0].t;
+        float tr = geo_tex_coords[0].s + geo_tex_coords[0].p;
+        float tt = geo_tex_coords[0].t + geo_tex_coords[0].q;
+
+        // Emit a triangle strip creating a quad (4 vertices).
+        // Here we need to make sure the rotation is applied before we position the sprite.
+        // We just use hardcoded texture coordinates here. If an atlas is used we
+        // can pass an additional vec4 for specific texture coordinates.
+        // Each EmitVertex() emits values down the shader pipeline just like a single
+        // run of a vertex shader, but in geomtry shaders we can do it multiple times!
+
+        // Upper left
+        gl_Position = window.projection * window.view * vec4(rot * vec2(-hsize.x, hsize.y) * scale + center, 0.0, 1.0);
+        uv = vec2(tl, tt);
+        frag_color = geo_color[0];
+        EmitVertex();
+
+        // lower left
+        gl_Position = window.projection * window.view * vec4(rot * vec2(-hsize.x, -hsize.y) * scale + center, 0.0, 1.0);
+        uv = vec2(tl, tb);
+        frag_color = geo_color[0];
+        EmitVertex();
+
+        // upper right
+        gl_Position = window.projection * window.view * vec4(rot * vec2(hsize.x, hsize.y) * scale + center, 0.0, 1.0);
+        uv = vec2(tr, tt);
+        frag_color = geo_color[0];
+        EmitVertex();
+
+        // lower right
+        gl_Position = window.projection * window.view * vec4(rot * vec2(hsize.x, -hsize.y) * scale + center, 0.0, 1.0);
+        uv = vec2(tr, tb);
+        frag_color = geo_color[0];
+        EmitVertex();
+
+        // We are done with this triangle strip now
+        EndPrimitive();
     }
 """
 
-fragment_source = """#version 150 core
-    in vec4 vertex_colors;
-    in vec3 texture_coords;
-    out vec4 final_colors;
+fragment_source = """#version 150
+    in vec2 uv;
+    in vec4 frag_color;
+    out vec4 final_color;
 
     uniform sampler2D sprite_texture;
 
-    void main()
-    {
-        final_colors = texture(sprite_texture, texture_coords.xy) * vertex_colors;
+    void main() {
+        final_color = texture(sprite_texture, uv) * frag_color;
     }
+
 """
 
 fragment_array_source = """#version 150 core
-    in vec4 vertex_colors;
-    in vec3 texture_coords;
+    in vec2 uv;
+    in vec4 frag_color;
+    
     out vec4 final_colors;
 
     uniform sampler2DArray sprite_texture;
 
     void main()
     {
-        final_colors = texture(sprite_texture, texture_coords) * vertex_colors;
+        final_colors = texture(sprite_texture, uv) * frag_color;
     }
 """
 
@@ -184,9 +250,10 @@ def get_default_shader():
     try:
         return pyglet.gl.current_context.pyglet_sprite_default_shader
     except AttributeError:
-        _default_vert_shader = graphics.shader.Shader(vertex_source, 'vertex')
-        _default_frag_shader = graphics.shader.Shader(fragment_source, 'fragment')
-        default_shader_program = graphics.shader.ShaderProgram(_default_vert_shader, _default_frag_shader)
+        vert_shader = graphics.shader.Shader(vertex_source, 'vertex')
+        geom_shader = graphics.shader.Shader(geometry_source, 'geometry')
+        frag_shader = graphics.shader.Shader(fragment_source, 'fragment')
+        default_shader_program = graphics.shader.ShaderProgram(vert_shader, geom_shader, frag_shader)
         pyglet.gl.current_context.pyglet_sprite_default_shader = default_shader_program
         return pyglet.gl.current_context.pyglet_sprite_default_shader
 
@@ -195,9 +262,10 @@ def get_default_array_shader():
     try:
         return pyglet.gl.current_context.pyglet_sprite_default_array_shader
     except AttributeError:
-        _default_vert_shader = graphics.shader.Shader(vertex_source, 'vertex')
-        _default_array_frag_shader = graphics.shader.Shader(fragment_array_source, 'fragment')
-        default_shader_program = graphics.shader.ShaderProgram(_default_vert_shader, _default_array_frag_shader)
+        vert_shader = graphics.shader.Shader(vertex_source, 'vertex')
+        geom_shader = graphics.shader.Shader(geometry_source, 'geometry')
+        frag_shader = graphics.shader.Shader(fragment_array_source, 'fragment')
+        default_shader_program = graphics.shader.ShaderProgram(vert_shader, geom_shader, frag_shader)
         pyglet.gl.current_context.pyglet_sprite_default_array_shader = default_shader_program
         return pyglet.gl.current_context.pyglet_sprite_default_array_shader
 
@@ -279,8 +347,7 @@ class Sprite(event.EventDispatcher):
     _frame_index = 0
     _paused = False
     _rotation = 0
-    _opacity = 255
-    _rgb = (255, 255, 255)
+    _rgba = [255, 255, 255, 255]
     _scale = 1.0
     _scale_x = 1.0
     _scale_y = 1.0
@@ -337,7 +404,18 @@ class Sprite(event.EventDispatcher):
         self._batch = batch or graphics.get_default_batch()
         self._group = self.group_class(self._texture, blend_src, blend_dest, self.program, group)
         self._subpixel = subpixel
+
         self._create_vertex_list()
+
+    def _create_vertex_list(self):
+        texture = self._texture
+        self._vertex_list = self.program.vertex_list(
+            1, GL_POINTS, self._batch, self._group,
+            position=('f', (self._x, self._y, self._z)),
+            size=('f', (texture.width, texture.height, 1, 1)),
+            color=('Bn', self._rgba),
+            texture_uv=('f', texture.uv),
+            rotation=('f', (self._rotation,)))
 
     @property
     def program(self):
@@ -408,7 +486,7 @@ class Sprite(event.EventDispatcher):
             return
 
         if batch is not None and self._batch is not None:
-            self._batch.migrate(self._vertex_list, GL_TRIANGLES, self._group, batch)
+            self._batch.migrate(self._vertex_list, GL_POINTS, self._group, batch)
             self._batch = batch
         else:
             self._vertex_list.delete()
@@ -435,7 +513,7 @@ class Sprite(event.EventDispatcher):
                                        self._group.blend_dest,
                                        self._group.program,
                                        group)
-        self._batch.migrate(self._vertex_list, GL_TRIANGLES, self._group, self._batch)
+        self._batch.migrate(self._vertex_list, GL_POINTS, self._group, self._batch)
 
     @property
     def image(self):
@@ -476,34 +554,8 @@ class Sprite(event.EventDispatcher):
             self._texture = texture
             self._create_vertex_list()
         else:
-            self._vertex_list.tex_coords[:] = texture.tex_coords
+            self._vertex_list.texture_uv[:] = texture.uv
         self._texture = texture
-
-    def _create_vertex_list(self):
-        self._vertex_list = self.program.vertex_list_indexed(
-            4, GL_TRIANGLES, [0, 1, 2, 0, 2, 3], self._batch, self._group,
-            colors=('Bn', (*self._rgb, int(self._opacity)) * 4),
-            translate=('f', (self._x, self._y, self._z) * 4),
-            scale=('f', (self._scale*self._scale_x, self._scale*self._scale_y) * 4),
-            rotation=('f', (self._rotation,) * 4),
-            tex_coords=('f', self._texture.tex_coords))
-        self._update_position()
-
-    def _update_position(self):
-        if not self._visible:
-            self._vertex_list.position[:] = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-        else:
-            img = self._texture
-            x1 = -img.anchor_x
-            y1 = -img.anchor_y
-            x2 = x1 + img.width
-            y2 = y1 + img.height
-            vertices = (x1, y1, 0, x2, y1, 0, x2, y2, 0, x1, y2, 0)
-
-            if not self._subpixel:
-                self._vertex_list.position[:] = tuple(map(int, vertices))
-            else:
-                self._vertex_list.position[:] = vertices
 
     @property
     def position(self):
@@ -522,7 +574,7 @@ class Sprite(event.EventDispatcher):
     @position.setter
     def position(self, position):
         self._x, self._y, self._z = position
-        self._vertex_list.translate[:] = position * 4
+        self._vertex_list.position[:] = position
 
     @property
     def x(self):
@@ -535,7 +587,7 @@ class Sprite(event.EventDispatcher):
     @x.setter
     def x(self, x):
         self._x = x
-        self._vertex_list.translate[:] = (x, self._y, self._z) * 4
+        self._vertex_list.position[:] = x, self._y, self._z
 
     @property
     def y(self):
@@ -548,7 +600,7 @@ class Sprite(event.EventDispatcher):
     @y.setter
     def y(self, y):
         self._y = y
-        self._vertex_list.translate[:] = (self._x, y, self._z) * 4
+        self._vertex_list.position[:] = self._x, y, self._z
 
     @property
     def z(self):
@@ -561,7 +613,7 @@ class Sprite(event.EventDispatcher):
     @z.setter
     def z(self, z):
         self._z = z
-        self._vertex_list.translate[:] = (self._x, self._y, z) * 4
+        self._vertex_list.position[:] = self._x, self._y, z
 
     @property
     def rotation(self):
@@ -577,7 +629,7 @@ class Sprite(event.EventDispatcher):
     @rotation.setter
     def rotation(self, rotation):
         self._rotation = rotation
-        self._vertex_list.rotation[:] = (self._rotation,) * 4
+        self._vertex_list.rotation[0] = self._rotation
 
     @property
     def scale(self):
@@ -593,7 +645,7 @@ class Sprite(event.EventDispatcher):
     @scale.setter
     def scale(self, scale):
         self._scale = scale
-        self._vertex_list.scale[:] = (scale * self._scale_x, scale * self._scale_y) * 4
+        self._vertex_list.scale[:] = scale * self._scale_x, scale * self._scale_y
 
     @property
     def scale_x(self):
@@ -609,7 +661,7 @@ class Sprite(event.EventDispatcher):
     @scale_x.setter
     def scale_x(self, scale_x):
         self._scale_x = scale_x
-        self._vertex_list.scale[:] = (self._scale * scale_x, self._scale * self._scale_y) * 4
+        self._vertex_list.scale[:] = self._scale * scale_x, self._scale * self._scale_y
 
     @property
     def scale_y(self):
@@ -625,7 +677,7 @@ class Sprite(event.EventDispatcher):
     @scale_y.setter
     def scale_y(self, scale_y):
         self._scale_y = scale_y
-        self._vertex_list.scale[:] = (self._scale * self._scale_x, self._scale * scale_y) * 4
+        self._vertex_list.scale[:] = self._scale * self._scale_x, self._scale * scale_y
 
     def update(self, x=None, y=None, z=None, rotation=None, scale=None, scale_x=None, scale_y=None):
         """Simultaneously change the position, rotation or scale.
@@ -664,11 +716,11 @@ class Sprite(event.EventDispatcher):
             translations_outdated = True
 
         if translations_outdated:
-            self._vertex_list.translate[:] = (self._x, self._y, self._z) * 4
+            self._vertex_list.position[:] = (self._x, self._y, self._z)
 
         if rotation is not None and rotation != self._rotation:
             self._rotation = rotation
-            self._vertex_list.rotation[:] = (rotation,) * 4
+            self._vertex_list.rotation[:] = rotation
 
         scales_outdated = False
 
@@ -684,7 +736,7 @@ class Sprite(event.EventDispatcher):
             scales_outdated = True
 
         if scales_outdated:
-            self._vertex_list.scale[:] = (self._scale * self._scale_x, self._scale * self._scale_y) * 4
+            self._vertex_list.scale[:] = self._scale * self._scale_x, self._scale * self._scale_y
 
     @property
     def width(self):
@@ -726,12 +778,12 @@ class Sprite(event.EventDispatcher):
 
         :type: int
         """
-        return self._opacity
+        return self._rgba[3]
 
     @opacity.setter
     def opacity(self, opacity):
-        self._opacity = opacity
-        self._vertex_list.colors[:] = (*self._rgb, int(self._opacity)) * 4
+        self._rgba[3] = opacity
+        self._vertex_list.color[:] = self._rgba
 
     @property
     def color(self):
@@ -745,12 +797,12 @@ class Sprite(event.EventDispatcher):
 
         :type: (int, int, int)
         """
-        return self._rgb
+        return self._rgba[:3]
 
     @color.setter
     def color(self, rgb):
-        self._rgb = list(map(int, rgb))
-        self._vertex_list.colors[:] = (*self._rgb, int(self._opacity)) * 4
+        self._rgba[:3] = list(map(int, rgb))
+        self._vertex_list.color[:] = self._rgba
 
     @property
     def visible(self):
@@ -763,7 +815,7 @@ class Sprite(event.EventDispatcher):
     @visible.setter
     def visible(self, visible):
         self._visible = visible
-        self._update_position()
+        self._vertex_list.texture_uv[:] = (0, 0, 0, 0) if not visible else self._texture.uv
 
     @property
     def paused(self):
@@ -817,7 +869,7 @@ class Sprite(event.EventDispatcher):
         efficiently.
         """
         self._group.set_state_recursive()
-        self._vertex_list.draw(GL_TRIANGLES)
+        self._vertex_list.draw(GL_POINTS)
         self._group.unset_state_recursive()
 
     if _is_pyglet_doc_run:
@@ -870,7 +922,7 @@ class AdvancedSprite(pyglet.sprite.Sprite):
                                        self._group.blend_dest,
                                        program,
                                        self._group)
-        self._batch.migrate(self._vertex_list, GL_TRIANGLES, self._group, self._batch)
+        self._batch.migrate(self._vertex_list, GL_POINTS, self._group, self._batch)
         self._program = program
 
 
