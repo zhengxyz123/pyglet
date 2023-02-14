@@ -262,7 +262,7 @@ class Sprite(AnimationController):
         """Create a sprite.
 
         :Parameters:
-            `img` : `~pyglet.image.AbstractImage` or `~pyglet.image.Animation`
+            `img` : `~pyglet.image.AbstractImage` or `~pyglet.animation.Animation`
                 Image or animation to display.
             `x` : int
                 X coordinate of the sprite.
@@ -290,7 +290,6 @@ class Sprite(AnimationController):
         self._img = img
 
         if isinstance(img, Animation):
-            super().__init__(img, self._animation_callback)
             self._animation = img
             self._texture = img.frames[0].data.get_texture()
             self._next_dt = img.frames[0].duration
@@ -336,8 +335,24 @@ class Sprite(AnimationController):
         # Easy way to break circular reference, speeds up GC
         self._group = None
 
-    def _animation_callback(self, frame):
+    def _animate(self, dt):
+        self._frame_index += 1
+        if self._frame_index >= len(self._animation.frames):
+            self._frame_index = 0
+            self.dispatch_event('on_animation_end')
+            if self._vertex_list is None:
+                return  # Deleted in event handler.
+
+        frame = self._animation.frames[self._frame_index]
         self._set_texture(frame.data.get_texture())
+
+        if frame.duration is not None:
+            duration = frame.duration - (self._next_dt - dt)
+            duration = min(max(0, duration), frame.duration)
+            clock.schedule_once(self._animate, duration)
+            self._next_dt = duration
+        else:
+            self.dispatch_event('on_animation_end')
 
     @property
     def batch(self):
@@ -391,7 +406,7 @@ class Sprite(AnimationController):
         """Image or animation to display.
 
         :type: :py:class:`~pyglet.image.AbstractImage` or
-               :py:class:`~pyglet.image.Animation`
+               :py:class:`~pyglet.animation.Animation`
         """
         if self._animation:
             return self._animation
@@ -403,7 +418,7 @@ class Sprite(AnimationController):
             clock.unschedule(self._animate)
             self._animation = None
 
-        if isinstance(img, image.Animation):
+        if isinstance(img, Animation):
             self._animation = img
             self._frame_index = 0
             self._set_texture(img.frames[0].image.get_texture())

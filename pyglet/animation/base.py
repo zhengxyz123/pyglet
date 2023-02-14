@@ -52,26 +52,10 @@ class AnimationController(_event.EventDispatcher):
     _next_dt = 0
     _paused = False
 
-    def __init__(self, animation, function):
-        self._animation = animation
-        self._function = _weakref.proxy(function)
+    _animation = None
 
     def _animate(self, dt):
-        self._frame_index += 1
-        if self._frame_index >= len(self._animation.frames):
-            self._frame_index = 0
-            self.dispatch_event('on_animation_end')
-
-        frame = self._animation.frames[self._frame_index]
-        self._function(frame)
-
-        if frame.duration is not None:
-            duration = frame.duration - (self._next_dt - dt)
-            duration = min(max(0, duration), frame.duration)
-            _clock.schedule_once(self._animate, duration)
-            self._next_dt = duration
-        else:
-            self.dispatch_event('on_animation_end')
+        raise NotImplementedError
 
     @property
     def paused(self) -> bool:
