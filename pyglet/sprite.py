@@ -74,7 +74,7 @@ from pyglet import graphics
 from pyglet import image
 
 from pyglet.gl import *
-from pyglet.animation import AnimationController
+from pyglet.animation import AnimationController, Animation
 
 
 _is_pyglet_doc_run = hasattr(sys, "is_pyglet_doc_run") and sys.is_pyglet_doc_run
@@ -289,7 +289,7 @@ class Sprite(AnimationController):
         self._z = z
         self._img = img
 
-        if isinstance(img, image.Animation):
+        if isinstance(img, Animation):
             super().__init__(img, self._animation_callback)
             self._animation = img
             self._texture = img.frames[0].data.get_texture()

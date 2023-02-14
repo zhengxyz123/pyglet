@@ -1,38 +1,3 @@
-# ----------------------------------------------------------------------------
-# pyglet
-# Copyright (c) 2006-2008 Alex Holkner
-# Copyright (c) 2008-2022 pyglet contributors
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#  * Redistributions of source code must retain the above copyright
-#    notice, this list of conditions and the following disclaimer.
-#  * Redistributions in binary form must reproduce the above copyright
-#    notice, this list of conditions and the following disclaimer in
-#    the documentation and/or other materials provided with the
-#    distribution.
-#  * Neither the name of pyglet nor the names of its
-#    contributors may be used to endorse or promote products
-#    derived from this software without specific prior written
-#    permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-# COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-# POSSIBILITY OF SUCH DAMAGE.
-# ----------------------------------------------------------------------------
-
 """Animations
 
 Animations can be used by the :py:class:`~pyglet.sprite.Sprite` class in place
@@ -75,13 +40,13 @@ If you wish to adjust this, you can manually create the Animation from a list of
 
 """
 
-import weakref
+import weakref as _weakref
 
-from pyglet import clock
-from pyglet import event
+from pyglet import clock as _clock
+from pyglet import event as _event
 
 
-class AnimationController(event.EventDispatcher):
+class AnimationController(_event.EventDispatcher):
 
     _frame_index = 0
     _next_dt = 0
@@ -89,7 +54,7 @@ class AnimationController(event.EventDispatcher):
 
     def __init__(self, animation, function):
         self._animation = animation
-        self._function = weakref.proxy(function)
+        self._function = _weakref.proxy(function)
 
     def _animate(self, dt):
         self._frame_index += 1
@@ -103,7 +68,7 @@ class AnimationController(event.EventDispatcher):
         if frame.duration is not None:
             duration = frame.duration - (self._next_dt - dt)
             duration = min(max(0, duration), frame.duration)
-            clock.schedule_once(self._animate, duration)
+            _clock.schedule_once(self._animate, duration)
             self._next_dt = duration
         else:
             self.dispatch_event('on_animation_end')
@@ -118,12 +83,12 @@ class AnimationController(event.EventDispatcher):
         if not self._animation or pause == self._paused:
             return
         if pause is True:
-            clock.unschedule(self._animate)
+            _clock.unschedule(self._animate)
         else:
             frame = self._animation.frames[self._frame_index]
             self._next_dt = frame.duration
             if self._next_dt:
-                clock.schedule_once(self._animate, self._next_dt)
+                _clock.schedule_once(self._animate, self._next_dt)
         self._paused = pause
 
     @property

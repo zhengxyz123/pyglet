@@ -329,8 +329,8 @@ class _ModuleProxy:
 # Lazily load all modules, except if performing
 # type checking or code inspection.
 if TYPE_CHECKING:
-    from . import app
     from . import animation
+    from . import app
     from . import canvas
     from . import clock
     from . import event
@@ -350,8 +350,8 @@ if TYPE_CHECKING:
     from . import text
     from . import window
 else:
-    app = _ModuleProxy('app')
     animation = _ModuleProxy('animation')
+    app = _ModuleProxy('app')
     canvas = _ModuleProxy('canvas')
     clock = _ModuleProxy('clock')
     event = _ModuleProxy('event')
