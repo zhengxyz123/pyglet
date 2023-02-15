@@ -102,12 +102,12 @@ from io import open
 import pyglet
 
 from pyglet.util import asbytes
+from pyglet.animation import Animation
 
-from .codecs import ImageEncodeException, ImageDecodeException
 from .codecs import registry as _codec_registry
 from .codecs import add_default_codecs as _add_default_codecs
+from .codecs import ImageEncodeException, ImageDecodeException
 
-from pyglet.animation.base import Animation
 from .buffer import *
 from . import atlas
 

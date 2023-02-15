@@ -22,7 +22,7 @@ You can also use an :py:class:`pyglet.image.ImageGrid`, which is iterable::
     sprite_sheet = pyglet.resource.image('my_sprite_sheet.png')
     image_grid = pyglet.image.ImageGrid(sprite_sheet, rows=1, columns=5)
 
-    ani = pyglet.image.Animation.from_image_sequence(image_grid, duration=0.1)
+    ani = pyglet.animation.Animation.from_image_sequence(image_grid, duration=0.1)
 
 In the above examples, all the Animation Frames have the same duration.
 If you wish to adjust this, you can manually create the Animation from a list of
@@ -40,21 +40,23 @@ If you wish to adjust this, you can manually create the Animation from a list of
 
 """
 
-import weakref as _weakref
-
 from pyglet import clock as _clock
 from pyglet import event as _event
 
 
 class AnimationController(_event.EventDispatcher):
 
-    _frame_index = 0
-    _next_dt = 0
-    _paused = False
+    _frame_index: int = 0
+    _next_dt: float = 0.0
+    _paused: bool = False
 
-    _animation = None
+    _animation: 'Animation'
 
     def _animate(self, dt):
+        """
+        Subclasses of AnimationController should provide their own
+        _animate method. This method should determine
+        """
         raise NotImplementedError
 
     @property
@@ -92,7 +94,7 @@ AnimationController.register_event_type('on_animation_end')
 
 
 class Animation:
-    """Sequence of frames with timing information.
+    """Sequence of AnimationFrames.
 
     If no frames of the animation have a duration of ``None``, the animation
     loops continuously; otherwise the animation stops at the first frame with
@@ -103,6 +105,8 @@ class Animation:
             The frames that make up the animation.
 
     """
+
+    __slots__ = 'frames'
 
     def __init__(self, frames: list):
         """Create an animation directly from a list of frames."""
@@ -135,4 +139,4 @@ class AnimationFrame:
         self.duration = duration
 
     def __repr__(self):
-        return "AnimationFrame({0}, duration={1})".format(self.data, self.duration)
+        return f"AnimationFrame({self.data}, duration={self.duration})"
