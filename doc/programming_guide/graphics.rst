@@ -141,8 +141,8 @@ Then you can set (or get) the value using the property: `program.time = 1.5` or 
 Uniform Buffer Objects (Uniform Blocks)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Pyglet also offers access to Uniform Buffer Objects or Uniform Blocks. These are special objects that can be used to
-share uniforms between different programs. For example, by default, Pyglet's `projection` and `view` matrix
+pyglet also offers access to Uniform Buffer Objects or Uniform Blocks. These are special objects that can be used to
+share uniforms between different programs. For example, by default, pyglet's `projection` and `view` matrix
 are both contained in the `WindowBlock` uniform block. Which looks like this in the vertex shader::
 
     uniform WindowBlock

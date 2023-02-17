@@ -99,7 +99,7 @@ The API documentation is generated from the source code docstrings via
                         doc='''Override docstring here if you want''')
 
 
-Pyglet has a special role for deprecations, ``:deprecated:``.
+pyglet has a special role for deprecations, ``:deprecated:``.
 
     .. list-table::
         :header-rows: 1

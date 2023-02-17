@@ -169,7 +169,7 @@ Supported on Windows, Linux, and Mac operating systems.
 PyOgg is a lightweight Python library that provides Python bindings for Opus, Vorbis,
 and FLAC codecs.
 
-Pyglet now provides a wrapper to support PyOgg. Since not all operating systems
+pyglet now provides a wrapper to support PyOgg. Since not all operating systems
 can decode the same audio formats natively, it can often be a hassle to choose
 an audio format that is truely cross platform with a small footprint. This wrapper
 was created to help with that issue.
@@ -226,7 +226,7 @@ in the `FFmpeg download <https://www.ffmpeg.org/download.html>`_ page. You must
 choose the shared build for the targeted OS with the architecture similar to
 the Python interpreter.
 
-Currently Pyglet supports versions 4.x and 5.x of FFmpeg.
+Currently pyglet supports versions 4.x and 5.x of FFmpeg.
 
 Choose the correct architecture depending on the targeted
 **Python interpreter**. If you're shipping your project with a 32 bits
@@ -602,7 +602,7 @@ to use some kind of loop to tick the pyglet clock periodically (perhaps every
     pyglet.clock.tick()
 
 If you wish to have a media source loop continuously (`player.loop = True`) you will
-also need to ensure Pyglet's events are dispatched inside your loop::
+also need to ensure pyglet's events are dispatched inside your loop::
 
     pyglet.app.platform_event_loop.dispatch_posted_events()
 

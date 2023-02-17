@@ -10,7 +10,7 @@ Planned work for future versions can be found in the
 Communication
 -------------
 
-Pyglet communication occurs mostly in our
+pyglet communication occurs mostly in our
 `mailing list <http://groups.google.com/group/pyglet-users>`_.
 
 Issue Tracker

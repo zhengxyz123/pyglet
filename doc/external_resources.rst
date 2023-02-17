@@ -29,5 +29,5 @@ Arcade
 A 2D library for game development focusing on simplicity.
 (https://arcade.academy)
 
-Arcade builds on Pyglet with a focus to make creating 2D arcade games
+Arcade builds on pyglet with a focus to make creating 2D arcade games
 simple and easy for hobbyists and new programmers.
