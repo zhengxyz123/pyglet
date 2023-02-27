@@ -326,7 +326,8 @@ class Sprite(event.EventDispatcher):
                  blend_dest=GL_ONE_MINUS_SRC_ALPHA,
                  batch=None,
                  group=None,
-                 subpixel=False):
+                 subpixel=False,
+                 program=None):
         """Create a sprite.
 
         :Parameters:
@@ -351,6 +352,11 @@ class Sprite(event.EventDispatcher):
             `subpixel` : bool
                 Allow floating-point coordinates for the sprite. By default,
                 coordinates are restricted to integer values.
+            `program` : `~pyglet.graphics.shader.ShaderProgram`
+                A custom shader to use. This shader program must contain the
+                exact same attribute names and types as the default shader.
+                The class methods and properties depend on this, and will
+                crash otherwise.
         """
         self._x = x
         self._y = y
@@ -366,7 +372,16 @@ class Sprite(event.EventDispatcher):
         else:
             self._texture = img.get_texture()
 
+        if not program:
+            if isinstance(img, image.TextureArrayRegion):
+                self._program = get_default_array_shader()
+            else:
+                self._program = get_default_shader()
+        else:
+            self._program = program
+
         self._batch = batch or graphics.get_default_batch()
+        self._user_group = group
         self._group = self.group_class(self._texture, blend_src, blend_dest, self.program, group)
         self._subpixel = subpixel
 
@@ -384,19 +399,19 @@ class Sprite(event.EventDispatcher):
 
     @property
     def program(self):
-        if isinstance(self._img, image.TextureArrayRegion):
-            program = get_default_array_shader()
-        else:
-            program = get_default_shader()
+        return self._program
 
-        return program
-
-    def __del__(self):
-        try:
-            if self._vertex_list is not None:
-                self._vertex_list.delete()
-        except:
-            pass
+    @program.setter
+    def program(self, program):
+        if self._program == program:
+            return
+        self._group = self.group_class(self._texture,
+                                       self._group.blend_src,
+                                       self._group.blend_dest,
+                                       program,
+                                       self._user_group)
+        self._batch.migrate(self._vertex_list, GL_POINTS, self._group, self._batch)
+        self._program = program
 
     def delete(self):
         """Force immediate removal of the sprite from video memory.
@@ -410,8 +425,6 @@ class Sprite(event.EventDispatcher):
         self._vertex_list.delete()
         self._vertex_list = None
         self._texture = None
-
-        # Easy way to break circular reference, speeds up GC
         self._group = None
 
     def _animate(self, dt):
@@ -837,6 +850,13 @@ class Sprite(event.EventDispatcher):
         self._vertex_list.draw(GL_POINTS)
         self._group.unset_state_recursive()
 
+    def __del__(self):
+        try:
+            if self._vertex_list is not None:
+                self._vertex_list.delete()
+        except:
+            pass
+
     if _is_pyglet_doc_run:
         def on_animation_end(self):
             """The sprite animation reached the final frame.
@@ -850,46 +870,3 @@ class Sprite(event.EventDispatcher):
 
 
 Sprite.register_event_type('on_animation_end')
-
-
-class AdvancedSprite(pyglet.sprite.Sprite):
-    """Is a sprite that lets you change the shader program during initialization and after
-    For advanced users who understand shaders."""
-    def __init__(self,
-                 img, x=0, y=0, z=0,
-                 blend_src=GL_SRC_ALPHA,
-                 blend_dest=GL_ONE_MINUS_SRC_ALPHA,
-                 batch=None,
-                 group=None,
-                 subpixel=False,
-                 program=None):
-
-        self._program = program
-
-        if not program:
-            if isinstance(img, image.TextureArrayRegion):
-                self._program = get_default_array_shader()
-            else:
-                self._program = get_default_shader()
-
-        super().__init__(img, x, y, z, blend_src, blend_dest, batch, group, subpixel)
-
-    @property
-    def program(self):
-        return self._program
-
-    @program.setter
-    def program(self, program):
-        if self._program == program:
-            return
-        self._group = self.group_class(self._texture,
-                                       self._group.blend_src,
-                                       self._group.blend_dest,
-                                       program,
-                                       self._group)
-        self._batch.migrate(self._vertex_list, GL_POINTS, self._group, self._batch)
-        self._program = program
-
-
-
-
