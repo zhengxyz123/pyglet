@@ -1,38 +1,3 @@
-# ----------------------------------------------------------------------------
-# pyglet
-# Copyright (c) 2006-2008 Alex Holkner
-# Copyright (c) 2008-2022 pyglet contributors
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#  * Redistributions of source code must retain the above copyright
-#    notice, this list of conditions and the following disclaimer.
-#  * Redistributions in binary form must reproduce the above copyright
-#    notice, this list of conditions and the following disclaimer in
-#    the documentation and/or other materials provided with the
-#    distribution.
-#  * Neither the name of pyglet nor the names of its
-#    contributors may be used to endorse or promote products
-#    derived from this software without specific prior written
-#    permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-# COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-# POSSIBILITY OF SUCH DAMAGE.
-# ----------------------------------------------------------------------------
-
 """2D shapes.
 
 This module provides classes for a variety of simplistic 2D shapes,
@@ -112,7 +77,7 @@ vertex_source = """#version 150 core
     {
         m_translate[3][0] = translation.x;
         m_translate[3][1] = translation.y;
-        m_rotation[0][0] =  cos(-radians(rotation)); 
+        m_rotation[0][0] =  cos(-radians(rotation));
         m_rotation[0][1] =  sin(-radians(rotation));
         m_rotation[1][0] = -sin(-radians(rotation));
         m_rotation[1][1] =  cos(-radians(rotation));
@@ -215,6 +180,7 @@ class ShapeBase(ABC):
     _group = None
     _num_verts = 0
     _vertex_list = None
+    _draw_mode = GL_TRIANGLES
 
     def __del__(self):
         if self._vertex_list is not None:
@@ -232,6 +198,21 @@ class ShapeBase(ABC):
 
     def _update_translation(self):
         self._vertex_list.translation[:] = (self._x, self._y) * self._num_verts
+
+    def _create_vertex_list(self):
+        """Build internal vertex list.
+
+        This method must create a vertex list and assign it to
+        `self._vertex_list`. It is advisable to use it
+        during `__init__` and to then update the vertices accordingly
+        with `self._update_vertices`.
+
+        While it is not mandatory to implement it, some properties (
+        namely `batch` and `group`) rely on this method to properly
+        recreate the vertex list.
+        """
+        raise NotImplementedError('_create_vertex_list must be defined in '
+                                  'order to use group or batch properties')
 
     @abstractmethod
     def _update_vertices(self):
@@ -253,7 +234,7 @@ class ShapeBase(ABC):
         shape to a `pyglet.graphics.Batch` for efficient rendering.
         """
         self._group.set_state_recursive()
-        self._vertex_list.draw(GL_TRIANGLES)
+        self._vertex_list.draw(self._draw_mode)
         self._group.unset_state_recursive()
 
     def delete(self):
@@ -404,8 +385,45 @@ class ShapeBase(ABC):
         self._visible = value
         self._update_vertices()
 
+    @property
+    def group(self):
+        """User assigned :class:`Group` object."""
+        return self._group.parent
+
+    @group.setter
+    def group(self, group):
+        if self._group.parent == group:
+            return
+        self._group = _ShapeGroup(self._group.blend_src,
+                                  self._group.blend_dest,
+                                  self._group.program,
+                                  group)
+        self._batch.migrate(self._vertex_list, self._draw_mode, self._group,
+                            self._batch)
+
+    @property
+    def batch(self):
+        """User assigned :class:`Batch` object."""
+        return self._batch
+
+    @batch.setter
+    def batch(self, batch):
+        if self._batch == batch:
+            return
+
+        if batch is not None and self._batch is not None:
+            self._batch.migrate(self._vertex_list, self._draw_mode,
+                                self._group, batch)
+            self._batch = batch
+        else:
+            self._vertex_list.delete()
+            self._batch = batch
+            self._create_vertex_list()
+
 
 class Arc(ShapeBase):
+    _draw_mode = GL_LINES
+
     def __init__(self, x, y, radius, segments=None, angle=math.tau, start_angle=0,
                  closed=False, color=(255, 255, 255, 255), batch=None, group=None):
         """Create an Arc.
@@ -460,10 +478,14 @@ class Arc(ShapeBase):
         program = get_default_shader()
         self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
 
-        self._vertex_list = program.vertex_list(self._num_verts, GL_LINES, self._batch, self._group,
-                                                colors=('Bn', self._rgba * self._num_verts),
-                                                translation=('f', (x, y) * self._num_verts))
+        self._create_vertex_list()
         self._update_vertices()
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._group.program.vertex_list(
+            self._num_verts, self._draw_mode, self._batch, self._group,
+            colors=('Bn', self._rgba * self._num_verts),
+            translation=('f', (self._x, self._y) * self._num_verts))
 
     def _update_vertices(self):
         if not self._visible:
@@ -539,7 +561,112 @@ class Arc(ShapeBase):
         Using this method is not recommended. Instead, add the
         shape to a `pyglet.graphics.Batch` for efficient rendering.
         """
-        self._vertex_list.draw(GL_LINES)
+        self._vertex_list.draw(self._draw_mode)
+
+
+class BezierCurve(ShapeBase):
+    _draw_mode = GL_LINES
+
+    def __init__(self, *points, t=1.0, segments=100, color=(255, 255, 255, 255), batch=None, group=None):
+        """Create a Bézier curve.
+
+        The curve's anchor point (x, y) defaults to its first control point.
+
+        :Parameters:
+            `points` : List[[int, int]]
+                Control points of the curve.
+            `t` : float
+                Draw `100*t` percent of the curve. 0.5 means the curve
+                is half drawn and 1.0 means draw the whole curve.
+            `segments` : int
+                You can optionally specify how many line segments the
+                curve should be made from.
+            `color` : (int, int, int, int)
+                The RGB or RGBA color of the curve, specified as a
+                tuple of 3 or 4 ints in the range of 0-255. RGB colors
+                will be treated as having an opacity of 255.
+            `batch` : `~pyglet.graphics.Batch`
+                Optional batch to add the curve to.
+            `group` : `~pyglet.graphics.Group`
+                Optional parent group of the curve.
+        """
+        self._points = list(points)
+        self._t = t
+        self._segments = segments
+        self._num_verts = self._segments * 2
+        r, g, b, *a = color
+        self._rgba = r, g, b, a[0] if a else 255
+
+        program = get_default_shader()
+        self._batch = batch or Batch()
+        self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
+
+        self._create_vertex_list()
+        self._update_vertices()
+
+    def _make_curve(self, t):
+        n = len(self._points) - 1
+        p = [0, 0]
+        for i in range(n + 1):
+            m = math.comb(n, i) * (1 - t) ** (n - i) * t ** i
+            p[0] += m * self._points[i][0]
+            p[1] += m * self._points[i][1]
+        return p
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._group.program.vertex_list(
+            self._num_verts, self._draw_mode, self._batch, self._group,
+            colors=('Bn', self._rgba * self._num_verts),
+            translation=('f', (self._points[0]) * self._num_verts))
+
+    def _update_vertices(self):
+        if not self._visible:
+            vertices = (0,) * self._segments * 4
+        else:
+            x = -self._anchor_x
+            y = -self._anchor_y
+
+            # Calculate the points of the curve:
+            points = [(x + self._make_curve(self._t * t / self._segments)[0],
+                       y + self._make_curve(self._t * t / self._segments)[1]) for t in range(self._segments + 1)]
+            trans_x, trans_y = points[0]
+            trans_x += self._anchor_x
+            trans_y += self._anchor_y
+            coords = [[x - trans_x, y - trans_y] for x, y in points]
+
+            # Create a list of doubled-up points from the points:
+            vertices = []
+            for i in range(len(coords) - 1):
+                line_points = *coords[i], *coords[i + 1]
+                vertices.extend(line_points)
+
+        self._vertex_list.vertices[:] = vertices
+
+    @property
+    def points(self):
+        """Control points of the curve.
+
+        :type: List[[int, int]]
+        """
+        return self._points
+
+    @points.setter
+    def points(self, value):
+        self._points = value
+        self._update_vertices()
+
+    @property
+    def t(self):
+        """Draw `100*t` percent of the curve.
+
+        :type: float
+        """
+        return self._t
+
+    @t.setter
+    def t(self, value):
+        self._t = value
+        self._update_vertices()
 
 
 class Circle(ShapeBase):
@@ -582,10 +709,14 @@ class Circle(ShapeBase):
         self._batch = batch or Batch()
         self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
 
-        self._vertex_list = program.vertex_list(self._segments*3, GL_TRIANGLES, self._batch, self._group,
-                                                colors=('Bn', self._rgba * self._num_verts),
-                                                translation=('f', (x, y) * self._num_verts))
+        self._create_vertex_list()
         self._update_vertices()
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._group.program.vertex_list(
+            self._segments*3, self._draw_mode, self._batch, self._group,
+            colors=('Bn', self._rgba * self._num_verts),
+            translation=('f', (self._x, self._y) * self._num_verts))
 
     def _update_vertices(self):
         if not self._visible:
@@ -623,6 +754,8 @@ class Circle(ShapeBase):
 
 
 class Ellipse(ShapeBase):
+    _draw_mode = GL_LINES
+
     def __init__(self, x, y, a, b, color=(255, 255, 255, 255),
                  batch=None, group=None):
         """Create an ellipse.
@@ -665,10 +798,14 @@ class Ellipse(ShapeBase):
         self._batch = batch or Batch()
         self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
 
-        self._vertex_list = program.vertex_list(self._num_verts, GL_LINES, self._batch, self._group,
-                                                colors=('Bn', self._rgba * self._num_verts),
-                                                translation=('f', (x, y) * self._num_verts))
+        self._create_vertex_list()
         self._update_vertices()
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._group.program.vertex_list(
+            self._num_verts, self._draw_mode, self._batch, self._group,
+            colors=('Bn', self._rgba * self._num_verts),
+            translation=('f', (self._x, self._y) * self._num_verts))
 
     def _update_vertices(self):
         if not self._visible:
@@ -732,14 +869,6 @@ class Ellipse(ShapeBase):
         self._rotation = rotation
         self._vertex_list.rotation[:] = (rotation,) * self._num_verts
 
-    def draw(self):
-        """Draw the shape at its current position.
-
-        Using this method is not recommended. Instead, add the
-        shape to a `pyglet.graphics.Batch` for efficient rendering.
-        """
-        self._vertex_list.draw(GL_LINES)
-
 
 class Sector(ShapeBase):
     def __init__(self, x, y, radius, segments=None, angle=math.tau, start_angle=0,
@@ -791,10 +920,14 @@ class Sector(ShapeBase):
         self._batch = batch or Batch()
         self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
 
-        self._vertex_list = program.vertex_list(self._num_verts, GL_TRIANGLES, self._batch, self._group,
-                                                colors=('Bn', self._rgba * self._num_verts),
-                                                translation=('f', (x, y) * self._num_verts))
+        self._create_vertex_list()
         self._update_vertices()
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._group.program.vertex_list(
+            self._num_verts, self._draw_mode, self._batch, self._group,
+            colors=('Bn', self._rgba * self._num_verts),
+            translation=('f', (self._x, self._y) * self._num_verts))
 
     def _update_vertices(self):
         if not self._visible:
@@ -918,10 +1051,14 @@ class Line(ShapeBase):
         self._batch = batch or Batch()
         self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
 
-        self._vertex_list = program.vertex_list(6, GL_TRIANGLES, self._batch, self._group,
-                                                colors=('Bn', self._rgba * self._num_verts),
-                                                translation=('f', (x, y) * self._num_verts))
+        self._create_vertex_list()
         self._update_vertices()
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._group.program.vertex_list(
+            6, self._draw_mode, self._batch, self._group,
+            colors=('Bn', self._rgba * self._num_verts),
+            translation=('f', (self._x, self._y) * self._num_verts))
 
     def _update_vertices(self):
         if not self._visible:
@@ -1013,10 +1150,14 @@ class Rectangle(ShapeBase):
         self._batch = batch or Batch()
         self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
 
-        self._vertex_list = program.vertex_list(6, GL_TRIANGLES, self._batch, self._group,
-                                                colors=('Bn', self._rgba * self._num_verts),
-                                                translation=('f', (x, y) * self._num_verts))
+        self._create_vertex_list()
         self._update_vertices()
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._group.program.vertex_list(
+            6, self._draw_mode, self._batch, self._group,
+            colors=('Bn', self._rgba * self._num_verts),
+            translation=('f', (self._x, self._y) * self._num_verts))
 
     def _update_vertices(self):
         if not self._visible:
@@ -1143,11 +1284,15 @@ class BorderedRectangle(ShapeBase):
         self._batch = batch or Batch()
         self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
 
-        indices = [0, 1, 2, 0, 2, 3, 0, 4, 3, 4, 7, 3, 0, 1, 5, 0, 5, 4, 1, 2, 5, 5, 2, 6, 6, 2, 3, 6, 3, 7]
-        self._vertex_list = program.vertex_list_indexed(8, GL_TRIANGLES, indices, self._batch, self._group,
-                                                        colors=('Bn', self._rgba * 4 + self._border_rgba * 4),
-                                                        translation=('f', (x, y) * self._num_verts))
+        self._create_vertex_list()
         self._update_vertices()
+
+    def _create_vertex_list(self):
+        indices = [0, 1, 2, 0, 2, 3, 0, 4, 3, 4, 7, 3, 0, 1, 5, 0, 5, 4, 1, 2, 5, 5, 2, 6, 6, 2, 3, 6, 3, 7]
+        self._vertex_list = self._group.program.vertex_list_indexed(
+            8, self._draw_mode, indices, self._batch, self._group,
+            colors=('Bn', self._rgba * 4 + self._border_rgba * 4),
+            translation=('f', (self._x, self._y) * self._num_verts))
 
     def _update_color(self):
         self._vertex_list.colors[:] = self._rgba * 4 + self._border_rgba * 4
@@ -1318,10 +1463,14 @@ class Triangle(ShapeBase):
         self._batch = batch or Batch()
         self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
 
-        self._vertex_list = program.vertex_list(3, GL_TRIANGLES, self._batch, self._group,
-                                                colors=('Bn', self._rgba * self._num_verts),
-                                                translation=('f', (x, y) * self._num_verts))
+        self._create_vertex_list()
         self._update_vertices()
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._group.program.vertex_list(
+            3, self._draw_mode, self._batch, self._group,
+            colors=('Bn', self._rgba * self._num_verts),
+            translation=('f', (self._x, self._y) * self._num_verts))
 
     def _update_vertices(self):
         if not self._visible:
@@ -1434,11 +1583,15 @@ class Star(ShapeBase):
         self._batch = batch or Batch()
         self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
 
-        self._vertex_list = program.vertex_list(self._num_verts, GL_TRIANGLES, self._batch, self._group,
-                                                colors=('Bn', self._rgba * self._num_verts),
-                                                rotation=('f', (rotation,) * self._num_verts),
-                                                translation=('f', (x, y) * self._num_verts))
+        self._create_vertex_list()
         self._update_vertices()
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._group.program.vertex_list(
+            self._num_verts, self._draw_mode, self._batch, self._group,
+            colors=('Bn', self._rgba * self._num_verts),
+            rotation=('f', (self._rotation,) * self._num_verts),
+            translation=('f', (self._x, self._y) * self._num_verts))
 
     def _update_vertices(self):
         if not self._visible:
@@ -1541,11 +1694,15 @@ class Polygon(ShapeBase):
         self._batch = batch or Batch()
         self._group = _ShapeGroup(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, program, group)
 
-        self._vertex_list = program.vertex_list(self._num_verts, GL_TRIANGLES, self._batch, self._group,
-                                                colors=('Bn', self._rgba * self._num_verts),
-                                                translation=('f', (coordinates[0]) * self._num_verts))
+        self._create_vertex_list()
         self._update_vertices()
         self._update_color()
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._group.program.vertex_list(
+            self._num_verts, self._draw_mode, self._batch, self._group,
+            colors=('Bn', self._rgba * self._num_verts),
+            translation=('f', (self._coordinates[0]) * self._num_verts))
 
     def _update_vertices(self):
         if not self._visible:
@@ -1582,4 +1739,4 @@ class Polygon(ShapeBase):
         self._vertex_list.rotation[:] = (rotation,) * self._num_verts
 
 
-__all__ = 'Arc', 'Circle', 'Ellipse', 'Line', 'Rectangle', 'BorderedRectangle', 'Triangle', 'Star', 'Polygon', 'Sector'
+__all__ = 'Arc', 'BezierCurve', 'Circle', 'Ellipse', 'Line', 'Rectangle', 'BorderedRectangle', 'Triangle', 'Star', 'Polygon', 'Sector'

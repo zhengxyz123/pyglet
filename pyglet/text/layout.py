@@ -1,38 +1,3 @@
-# ----------------------------------------------------------------------------
-# pyglet
-# Copyright (c) 2006-2008 Alex Holkner
-# Copyright (c) 2008-2022 pyglet contributors
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#  * Redistributions of source code must retain the above copyright
-#    notice, this list of conditions and the following disclaimer.
-#  * Redistributions in binary form must reproduce the above copyright
-#    notice, this list of conditions and the following disclaimer in
-#    the documentation and/or other materials provided with the
-#    distribution.
-#  * Neither the name of pyglet nor the names of its
-#    contributors may be used to endorse or promote products
-#    derived from this software without specific prior written
-#    permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-# COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-# POSSIBILITY OF SUCH DAMAGE.
-# ----------------------------------------------------------------------------
-
 """Render simple text and formatted documents efficiently.
 
 Three layout classes are provided:
@@ -180,7 +145,7 @@ def _parse_distance(distance, dpi):
         return int(distance)
 
     match = _distance_re.match(distance)
-    assert match, 'Could not parse distance %s' % distance
+    assert match, f'Could not parse distance {distance}'
     if not match:
         return 0
 
@@ -199,7 +164,7 @@ def _parse_distance(distance, dpi):
     elif unit == 'cm':
         return int(value * dpi * 0.393700787)
     else:
-        assert False, 'Unknown distance unit %s' % unit
+        assert False, f'Unknown distance unit {unit}'
 
 
 class _Line:
@@ -225,7 +190,7 @@ class _Line:
         self.boxes = []
 
     def __repr__(self):
-        return '_Line(%r)' % self.boxes
+        return f'_Line({self.boxes})'
 
     def add_box(self, box):
         self.boxes.append(box)
@@ -460,7 +425,7 @@ class _GlyphBox(_AbstractBox):
         return position
 
     def __repr__(self):
-        return '_GlyphBox(%r)' % self.glyphs
+        return f'_GlyphBox({self.glyphs})'
 
 
 class _InlineElementBox(_AbstractBox):
@@ -495,7 +460,7 @@ class _InlineElementBox(_AbstractBox):
             return 1
 
     def __repr__(self):
-        return '_InlineElementBox(%r)' % self.element
+        return f'_InlineElementBox({self.element})'
 
 
 class _InvalidRange:

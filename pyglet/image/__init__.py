@@ -1,38 +1,3 @@
-# ----------------------------------------------------------------------------
-# pyglet
-# Copyright (c) 2006-2008 Alex Holkner
-# Copyright (c) 2008-2022 pyglet contributors
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#  * Redistributions of source code must retain the above copyright
-#    notice, this list of conditions and the following disclaimer.
-#  * Redistributions in binary form must reproduce the above copyright
-#    notice, this list of conditions and the following disclaimer in
-#    the documentation and/or other materials provided with the
-#    distribution.
-#  * Neither the name of pyglet nor the names of its
-#    contributors may be used to endorse or promote products
-#    derived from this software without specific prior written
-#    permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-# COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-# POSSIBILITY OF SUCH DAMAGE.
-# ----------------------------------------------------------------------------
-
 """Image load, capture and high-level texture functions.
 
 Only basic functionality is described here; for full reference see the
@@ -713,7 +678,7 @@ class ImageData(AbstractImage):
         :rtype: cls or cls.region_class
         """
         internalformat = self._get_internalformat(self._desired_format)
-        texture = cls.create(self.width, self.height, GL_TEXTURE_2D, internalformat)
+        texture = cls.create(self.width, self.height, GL_TEXTURE_2D, internalformat, False, blank_data=False)
         if self.anchor_x or self.anchor_y:
             texture.anchor_x = self.anchor_x
             texture.anchor_y = self.anchor_y
@@ -741,7 +706,7 @@ class ImageData(AbstractImage):
         if self._current_mipmap_texture:
             return self._current_mipmap_texture
 
-        texture = Texture.create(self.width, self.height, GL_TEXTURE_2D, None)
+        texture = Texture.create(self.width, self.height, GL_TEXTURE_2D, None, blank_data=False)
         if self.anchor_x or self.anchor_y:
             texture.anchor_x = self.anchor_x
             texture.anchor_y = self.anchor_y
@@ -853,10 +818,15 @@ class ImageData(AbstractImage):
 
         # Unset GL_UNPACK_ROW_LENGTH:
         glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+        self._default_region_unpack()
+
         # Flush image upload before data get GC'd:
         glFlush()
 
     def _apply_region_unpack(self):
+        pass
+
+    def _default_region_unpack(self):
         pass
 
     def _convert(self, fmt, pitch):
@@ -1031,6 +1001,10 @@ class ImageDataRegion(ImageData):
     def _apply_region_unpack(self):
         glPixelStorei(GL_UNPACK_SKIP_PIXELS, self.x)
         glPixelStorei(GL_UNPACK_SKIP_ROWS, self.y)
+
+    def _default_region_unpack(self):
+        glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0)
+        glPixelStorei(GL_UNPACK_SKIP_ROWS, 0)
 
     def get_region(self, x, y, width, height):
         x += self.x
@@ -1254,7 +1228,7 @@ class Texture(AbstractImage):
         glBindImageTexture(unit, self.id, level, layered, layer, access, fmt)
 
     @classmethod
-    def create(cls, width, height, target=GL_TEXTURE_2D, internalformat=GL_RGBA8, min_filter=None, mag_filter=None, fmt=GL_RGBA):
+    def create(cls, width, height, target=GL_TEXTURE_2D, internalformat=GL_RGBA8, min_filter=None, mag_filter=None, fmt=GL_RGBA, blank_data=True):
         """Create a Texture
 
         Create a Texture with the specified dimentions, target and format.
@@ -1279,6 +1253,9 @@ class Texture(AbstractImage):
                 GL constant giving format of texture; for example, ``GL_RGBA``.
                 The format specifies what format the pixel data we're expecting to write
                 to the texture and should ideally be the same as for internal format.
+            `blank_data` : bool
+                Setting to True will initialize the texture data with all zeros. Setting False, will initialize Texture
+                with no data.
 
         :rtype: :py:class:`~pyglet.image.Texture`
         """
@@ -1292,13 +1269,14 @@ class Texture(AbstractImage):
         glTexParameteri(target, GL_TEXTURE_MAG_FILTER, mag_filter)
 
         if internalformat is not None:
+            blank = (GLubyte * (width * height * 4))() if blank_data else None
             glTexImage2D(target, 0,
                          internalformat,
                          width, height,
                          0,
                          fmt,
                          GL_UNSIGNED_BYTE,
-                         None)
+                         blank)
             glFlush()
 
         texture = cls(width, height, target, tex_id.value)
@@ -1337,7 +1315,7 @@ class Texture(AbstractImage):
             glPixelStorei(GL_PACK_ALIGNMENT, 1)
             glCheckFramebufferStatus(GL_FRAMEBUFFER)
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self.id, self.level)
-            glReadPixels(0, 0, self.width, self.height, gl_format, GL_UNSIGNED_BYTE, buf) 
+            glReadPixels(0, 0, self.width, self.height, gl_format, GL_UNSIGNED_BYTE, buf)
             glBindFramebuffer(GL_FRAMEBUFFER, 0)
             glDeleteFramebuffers(1, fbo)
         else:
@@ -1509,7 +1487,7 @@ class Texture3D(Texture, UniformTextureSequence):
     items = ()
 
     @classmethod
-    def create_for_images(cls, images, internalformat=GL_RGBA):
+    def create_for_images(cls, images, internalformat=GL_RGBA, blank_data=True):
         item_width = images[0].width
         item_height = images[0].height
         for image in images:
@@ -1525,12 +1503,13 @@ class Texture3D(Texture, UniformTextureSequence):
 
         texture.images = depth
 
+        blank = (GLubyte * (texture.width * texture.height * texture.images))() if blank_data else None
         glBindTexture(texture.target, texture.id)
         glTexImage3D(texture.target, texture.level,
                      internalformat,
                      texture.width, texture.height, texture.images, 0,
                      GL_ALPHA, GL_UNSIGNED_BYTE,
-                     None)
+                     blank)
 
         items = []
         for i, image in enumerate(images):
@@ -2135,7 +2114,7 @@ class ColorBufferImage(BufferImage):
     format = 'RGBA'
 
     def get_texture(self, rectangle=False):
-        texture = Texture.create(self.width, self.height, GL_TEXTURE_2D, GL_RGBA)
+        texture = Texture.create(self.width, self.height, GL_TEXTURE_2D, GL_RGBA, blank_data=False)
         self.blit_to_texture(texture.target, texture.level, self.anchor_x, self.anchor_y, 0)
         return texture
 
