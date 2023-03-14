@@ -519,7 +519,6 @@ class Sprite(event.EventDispatcher):
                 clock.schedule_once(self._animate, self._next_dt)
         else:
             self._set_texture(img.get_texture())
-        self._update_position()
 
     def _set_texture(self, texture):
         if texture.id is not self._texture.id:
