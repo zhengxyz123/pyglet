@@ -66,6 +66,28 @@ _gl_types = {
 }
 
 
+def _make_attribute_property(attribute):
+
+    attrname = attribute.name
+
+    def _attribute_getter(self):
+        domain = self.domain
+        if self._cache_versions.get(attrname, None) != domain.version:
+            self._caches[attrname] = attribute.get_region(attribute.buffer, self.start, self.count)
+            self._cache_versions[attrname] = domain.version
+
+        region = self._caches[attrname]
+        region.invalidate()
+        return region.array
+
+    def _attribute_setter(self, values):
+        if 'domain' in self.__dict__ and attrname in self.__dict__['domain'].attribute_names:
+            getattr(self, attrname)[:] = values
+
+    return property(_attribute_getter, _attribute_setter)
+
+
+
 class VertexDomain:
     """Management of a set of vertex lists.
 
@@ -103,6 +125,10 @@ class VertexDomain:
         self.attribute_names = {}
         for attribute in self.attributes:
             self.attribute_names[attribute.name] = attribute
+
+        self._property_dict = {attribute.name: _make_attribute_property(attribute) for attribute in self.attributes}
+
+        self._vertexlist_class = type("VertexList", (VertexList,), self._property_dict)
 
     def __del__(self):
         # Break circular refs that Python GC seems to miss even when forced
@@ -149,7 +175,8 @@ class VertexDomain:
         :rtype: :py:class:`VertexList`
         """
         start = self.safe_alloc(count)
-        return VertexList(self, start, count)
+        # return VertexList(self, start, count)
+        return self._vertexlist_class(self, start, count)
 
     def draw(self, mode):
         """Draw all vertices in the domain.
@@ -300,25 +327,25 @@ class VertexList:
         attribute = self.domain.attribute_names[name]
         attribute.set_region(attribute.buffer, self.start, self.count, data)
 
-    def __getattr__(self, name):
-        """dynamic access to vertex attributes, for backwards compatibility.
-        """
-        domain = self.domain
-        if self._cache_versions.get(name, None) != domain.version:
-            attribute = domain.attribute_names[name]
-            self._caches[name] = attribute.get_region(attribute.buffer, self.start, self.count)
-            self._cache_versions[name] = domain.version
-
-        region = self._caches[name]
-        region.invalidate()
-        return region.array
-
-    def __setattr__(self, name, value):
-        # Allow setting vertex attributes directly without overwriting them:
-        if 'domain' in self.__dict__ and name in self.__dict__['domain'].attribute_names:
-            getattr(self, name)[:] = value
-            return
-        super().__setattr__(name, value)
+    # def __getattr__(self, name):
+    #     """dynamic access to vertex attributes, for backwards compatibility.
+    #     """
+    #     domain = self.domain
+    #     if self._cache_versions.get(name, None) != domain.version:
+    #         attribute = domain.attribute_names[name]
+    #         self._caches[name] = attribute.get_region(attribute.buffer, self.start, self.count)
+    #         self._cache_versions[name] = domain.version
+    #
+    #     region = self._caches[name]
+    #     region.invalidate()
+    #     return region.array
+    #
+    # def __setattr__(self, name, value):
+    #     # Allow setting vertex attributes directly without overwriting them:
+    #     if 'domain' in self.__dict__ and name in self.__dict__['domain'].attribute_names:
+    #         getattr(self, name)[:] = value
+    #         return
+    #     super().__setattr__(name, value)
 
 
 class IndexedVertexDomain(VertexDomain):
@@ -338,6 +365,8 @@ class IndexedVertexDomain(VertexDomain):
         self.index_c_type = shader._c_types[index_gl_type]
         self.index_element_size = ctypes.sizeof(self.index_c_type)
         self.index_buffer = BufferObject(self.index_allocator.capacity * self.index_element_size)
+
+        self._vertexlist_class = type("IndexedVertexList", (IndexedVertexList,), self._property_dict)
 
     def safe_index_alloc(self, count):
         """Allocate indices, resizing the buffers if necessary."""
@@ -373,7 +402,8 @@ class IndexedVertexDomain(VertexDomain):
         """
         start = self.safe_alloc(count)
         index_start = self.safe_index_alloc(index_count)
-        return IndexedVertexList(self, start, count, index_start, index_count)
+        # return IndexedVertexList(self, start, count, index_start, index_count)
+        return self._vertexlist_class(self, start, count, index_start, index_count)
 
     def get_index_region(self, start, count):
         """Get a data from a region of the index buffer.
