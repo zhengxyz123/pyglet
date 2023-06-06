@@ -23,8 +23,6 @@ primitives of the same OpenGL primitive mode.
 
 import ctypes
 
-import pyglet
-
 from pyglet.gl import *
 from pyglet.graphics import allocation, shader, vertexarray
 from pyglet.graphics.vertexbuffer import BufferObject, MappableBufferObject
@@ -81,8 +79,7 @@ def _make_attribute_property(attribute):
         return region.array
 
     def _attribute_setter(self, values):
-        if 'domain' in self.__dict__ and attrname in self.__dict__['domain'].attribute_names:
-            getattr(self, attrname)[:] = values
+        getattr(self, attrname)[:] = values
 
     return property(_attribute_getter, _attribute_setter)
 
@@ -103,8 +100,10 @@ class VertexDomain:
         self.allocator = allocation.Allocator(self._initial_count)
         self.vao = vertexarray.VertexArray()
 
-        self.attributes = []
-        self.buffer_attributes = []  # list of (buffer, attributes)
+        self.attribute_names = {}       # name: attribute
+        self.buffer_attributes = []     # list of (buffer, attributes)
+
+        self._property_dict = {}        # name: property(_getter, _setter)
 
         for name, meta in attribute_meta.items():
             assert meta['format'][0] in _gl_types, f"'{meta['format']}' is not a valid atrribute format for '{name}'."
@@ -113,7 +112,7 @@ class VertexDomain:
             gl_type = _gl_types[meta['format'][0]]
             normalize = 'n' in meta['format']
             attribute = shader.Attribute(name, location, count, gl_type, normalize)
-            self.attributes.append(attribute)
+            self.attribute_names[attribute.name] = attribute
 
             # Create buffer:
             attribute.buffer = MappableBufferObject(attribute.stride * self.allocator.capacity)
@@ -121,19 +120,16 @@ class VertexDomain:
             attribute.buffer.attributes = (attribute,)
             self.buffer_attributes.append((attribute.buffer, (attribute,)))
 
-        # Create named attributes for each attribute
-        self.attribute_names = {}
-        for attribute in self.attributes:
-            self.attribute_names[attribute.name] = attribute
+            # Create custom property to be used in the VertexList:
+            self._property_dict[attribute.name] = _make_attribute_property(attribute)
 
-        self._property_dict = {attribute.name: _make_attribute_property(attribute) for attribute in self.attributes}
-
+        # Make a custom VertexList class w/ properties for each attribute in the ShaderProgram:
         self._vertexlist_class = type("VertexList", (VertexList,), self._property_dict)
 
     def __del__(self):
         # Break circular refs that Python GC seems to miss even when forced
         # collection.
-        for attribute in self.attributes:
+        for attribute in self.attribute_names.values():
             try:
                 del attribute.buffer
             except AttributeError:
@@ -280,7 +276,7 @@ class VertexList:
         new_start = self.domain.safe_realloc(self.start, self.count, count)
         if new_start != self.start:
             # Copy contents to new location
-            for attribute in self.domain.attributes:
+            for attribute in self.domain.attribute_names.values():
                 old = attribute.get_region(attribute.buffer, self.start, self.count)
                 new = attribute.get_region(attribute.buffer, new_start, self.count)
                 new.array[:] = old.array[:]
@@ -327,26 +323,6 @@ class VertexList:
         attribute = self.domain.attribute_names[name]
         attribute.set_region(attribute.buffer, self.start, self.count, data)
 
-    # def __getattr__(self, name):
-    #     """dynamic access to vertex attributes, for backwards compatibility.
-    #     """
-    #     domain = self.domain
-    #     if self._cache_versions.get(name, None) != domain.version:
-    #         attribute = domain.attribute_names[name]
-    #         self._caches[name] = attribute.get_region(attribute.buffer, self.start, self.count)
-    #         self._cache_versions[name] = domain.version
-    #
-    #     region = self._caches[name]
-    #     region.invalidate()
-    #     return region.array
-    #
-    # def __setattr__(self, name, value):
-    #     # Allow setting vertex attributes directly without overwriting them:
-    #     if 'domain' in self.__dict__ and name in self.__dict__['domain'].attribute_names:
-    #         getattr(self, name)[:] = value
-    #         return
-    #     super().__setattr__(name, value)
-
 
 class IndexedVertexDomain(VertexDomain):
     """Management of a set of indexed vertex lists.
@@ -366,6 +342,7 @@ class IndexedVertexDomain(VertexDomain):
         self.index_element_size = ctypes.sizeof(self.index_c_type)
         self.index_buffer = BufferObject(self.index_allocator.capacity * self.index_element_size)
 
+        # Make a custom VertexList class w/ properties for each attribute in the ShaderProgram:
         self._vertexlist_class = type("IndexedVertexList", (IndexedVertexList,), self._property_dict)
 
     def safe_index_alloc(self, count):
