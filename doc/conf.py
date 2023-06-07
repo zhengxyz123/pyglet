@@ -132,6 +132,8 @@ extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.todo',
               'sphinx.ext.napoleon']
 
+autoclass_content = 'both'
+
 autodoc_member_order = 'groupwise'
 
 # Add any paths that contain templates here, relative to this directory.
