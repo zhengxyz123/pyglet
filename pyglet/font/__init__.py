@@ -20,9 +20,10 @@ from __future__ import annotations
 import os
 import sys
 import weakref
-from typing import TYPE_CHECKING, BinaryIO, Iterable
+from typing import Union, BinaryIO, Optional, Iterable
 
 import pyglet
+from pyglet.font.user.mapping import UserDefinedMappingFont
 from pyglet import gl
 from pyglet.font.user import UserDefinedFontBase
 
@@ -54,23 +55,38 @@ def _get_system_font_class() -> type[Font]:
     return _font_class
 
 
-def add_user_font(font: UserDefinedFontBase) -> None:
-    """Add a custom font created by the user.
+def create_font(name: str, default_char: str, ascent: Optional[float] = None,
+                descent: Optional[float] = None, size: Optional[float] = 12,
+                bold: Optional[bool] = False, italic: Optional[bool] = False,
+                stretch: Optional[bool] = False, dpi: Optional[float] = 96,
+                font_class=UserDefinedMappingFont, **kwargs):
+    """Create a custom font using font_class.
 
-    A strong reference needs to be applied to the font object,
-    otherwise pyglet may not find the font later.
+    A strong reference needs to be applied to the returned font object,
+    otherwise pyglet may not find the font.
 
-    Args:
-        font:
-            A font class instance defined by user.
+    :Parameters:
+        `name` : str
+            Name of the font.
+        `default_char` : str
+            If a character in a string is not found in the font,
+            it will use this as fallback.
+        `size` : int
+            Font size.
+        `ascent` : int
+            Maximum ascent above the baseline, in pixels.
+        `descent` : int
+            Maximum descent below the baseline, in pixels. Usually negative.
+        `font_class` : `~pyglet.font.user.UserDefinedFont`
+            A font class defined by user.
+        `kwargs` : dict
+            Other parameters. For example, the default font_class need a
+            dict named `mappings`.
 
-    Raises:
-        Exception: If font provided is not derived from :py:class:`~pyglet.font.user.UserDefinedFontBase`.
+    The rest of the font parameters are used for font lookups.
+
+    :rtype: `Font`
     """
-    if not isinstance(font, UserDefinedFontBase):
-        msg = "Font is not must be created fromm the UserDefinedFontBase."
-        raise Exception(msg)
-
     # Locate or create font cache
     shared_object_space = gl.current_context.object_space
     if not hasattr(shared_object_space, "pyglet_font_font_cache"):
@@ -84,11 +100,25 @@ def add_user_font(font: UserDefinedFontBase) -> None:
     # Look for font name in font cache
     descriptor = (font.name, font.size, font.bold, font.italic, font.stretch, font.dpi)
     if descriptor in font_cache:
-        msg = f"A font with parameters {descriptor} has already been created."
-        raise Exception(msg)
-    if _system_font_class.have_font(font.name):
-        msg = f"Font name '{font.name}' already exists within the system fonts."
-        raise Exception(msg)
+        raise Exception(f"A font with parameters {descriptor} has already been created.")
+
+    if _system_font_class.have_font(name):
+        raise Exception(f"Font name '{name}' already exists within the system fonts.")
+
+    # Not in cache, create from scratch
+    font = font_class(default_char, name, ascent, descent,
+                      size, bold, italic, stretch, dpi, **kwargs)
+
+    # Save parameters for new-style layout classes to recover
+    # TODO: add properties to the Font classes, so these can be queried:
+    font.size = size
+    font.bold = bold
+    font.italic = italic
+    font.stretch = stretch
+    font.dpi = dpi
+
+    if name not in _user_fonts:
+        _user_fonts.append(name)
 
     if font.name not in _user_fonts:
         _user_fonts.append(font.name)
@@ -109,8 +139,11 @@ def load(name: str | Iterable[str] | None = None, size: float | None = None, bol
          italic: bool | str = False, stretch: bool | str = False, dpi: float | None = None) -> Font:
     """Load a font for rendering.
 
-    Args:
-        name:
+    A strong reference needs to be applied to the returned font object,
+    otherwise pyglet may not find the font.
+
+    :Parameters:
+        `name` : str, or list of str
             Font family, for example, "Times New Roman".  If a list of names
             is provided, the first one matching a known font is used.  If no
             font can be matched to the name(s), a default font is used. The default font
@@ -236,4 +269,4 @@ def add_directory(directory: str) -> None:
             add_file(os.path.join(directory, file))
 
 
-__all__ = ("add_file", "add_directory", "add_user_font", "load", "have_font")
+__all__ = ('add_file', 'add_directory', 'create_font', 'load', 'have_font')
