@@ -55,7 +55,7 @@ def _get_system_font_class() -> type[Font]:
     return _font_class
 
 
-def add_font(font=UserDefinedFontBase):
+def add_user_font(font=UserDefinedFontBase):
     """Add a custom font.
 
     A strong reference needs to be applied to the font object,
